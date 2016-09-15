@@ -102,9 +102,9 @@ class ResultServer(SocketServer.ThreadingTCPServer, object):
             h.end_request.set()
             h.done_event.wait()
 
-    def register_handler(self, handler):
+    def register_handler(self, handler, real_ip):
         """Register a RequestHandler so that we can later wait for it."""
-        task, machine = self.get_ctx_for_ip(handler.client_address[0])
+        task, machine = self.get_ctx_for_ip(real_ip)
         if not task or not machine:
             return False
 
@@ -139,13 +139,6 @@ class ResultHandler(SocketServer.BaseRequestHandler):
         self.startbuf = ""
         self.end_request = threading.Event()
         self.done_event = threading.Event()
-        self.server.register_handler(self)
-
-        if hasattr(select, "poll"):
-            self.poll = select.poll()
-            self.poll.register(self.request, select.POLLIN)
-        else:
-            self.poll = None
 
     def finish(self):
         self.done_event.set()
@@ -214,14 +207,20 @@ class ResultHandler(SocketServer.BaseRequestHandler):
         return buf
 
     def negotiate_protocol(self):
-        protocol = self.read_newline(strip=True)
-
-        # Command with version number.
-        if " " in protocol:
-            command, version = protocol.split()
+        raw_protocol = self.raw_protocol
+        if len(raw_protocol.split()) == 3:
+            command, version, ip = raw_protocol.split()
             version = int(version)
+        elif len(raw_protocol.split()) == 2:
+            command, ip = raw_protocol.split()
+            version = None
+        elif len(raw_protocol.split()) == 1:
+            log.debug("Anaylzer is not sending IP with Payload...")
+            command = raw_protocol
         else:
-            command, version = protocol, None
+            raise CuckooOperationalError(
+                "Analyzer payload in unrecognizable format..."
+            )
 
         if command == "BSON":
             self.protocol = BsonParser(self, version)
@@ -236,8 +235,34 @@ class ResultHandler(SocketServer.BaseRequestHandler):
 
         self.protocol.init()
 
+    def get_real_machine_ip(self):
+        raw_protocol = self.raw_protocol
+        # Command with version number.
+        if len(raw_protocol.split()) == 3:
+            command, version, ip = raw_protocol.split()
+            return ip
+        elif len(raw_protocol.split()) == 2:
+            command, ip = raw_protocol.split()
+            return ip
+        else:
+            return self.client_address[0]
+
+    def return_protocol(self):
+        raw_protocol = self.read_newline(strip=True)
+        
+        return raw_protocol
+
     def handle(self):
-        ip, port = self.client_address
+        if hasattr(select, "poll"):
+            self.poll = select.poll()
+            self.poll.register(self.request, select.POLLIN)
+        else:
+            self.poll = None
+
+        self.raw_protocol = self.return_protocol()
+        real_ip = self.get_real_machine_ip()
+        self.server.register_handler(self, real_ip)
+        ip, port = real_ip, self.client_address[1]
         self.connect_time = datetime.datetime.now()
 
         self.storagepath = self.server.build_storage_path(ip)

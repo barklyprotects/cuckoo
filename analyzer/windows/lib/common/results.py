@@ -82,19 +82,22 @@ class NetlogConnection(object):
 
 class NetlogFile(NetlogConnection):
     def init(self, dump_path, filepath=None, pids=[]):
+        ip_address = socket.gethostbyname(socket.gethostname())
         if filepath:
-            self.proto = "FILE 2\n{0}\n{1}\n{2}\n".format(
-                dump_path, filepath, " ".join(pids)
+            self.proto = "FILE 2 {0}\n{1}\n{2}\n{3}\n".format(
+                ip_address, dump_path, filepath, " ".join(pids)
             )
         else:
-            self.proto = "FILE\n{0}\n".format(dump_path)
+            self.proto = "FILE {0}\n{1}\n".format(ip_address, dump_path)
 
         self.connect()
 
 class NetlogHandler(logging.Handler, NetlogConnection):
     def __init__(self):
         logging.Handler.__init__(self)
-        NetlogConnection.__init__(self, proto="LOG\n")
+        ip_address = socket.gethostbyname(socket.gethostname())
+        proto = "LOG {0}\n".format(ip_address)
+        NetlogConnection.__init__(self, proto=proto)
         self.connect()
 
     def emit(self, record):

@@ -70,7 +70,10 @@ class PipeForwarder(threading.Thread):
                                         byref(bytes_read), None)
 
             if success or KERNEL32.GetLastError() == ERROR_MORE_DATA:
-                sock.sendall(buf.raw[:bytes_read.value])
+                ip_address = socket.gethostbyname(socket.gethostname())
+                protocol = "BSON {0}".format(ip_address)
+                buf_raw = buf.raw[:bytes_read.value].replace("BSON", protocol)
+                sock.sendall(buf_raw)
             # If we get the broken pipe error then this pipe connection has
             # been terminated for one reason or another. So break from the
             # loop and make the socket "inactive", that is, another pipe
